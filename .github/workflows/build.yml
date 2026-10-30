@@ -24,6 +24,9 @@ jobs:
       - name: Create android folder
         run: flutter create --platforms=android .
 
+      - name: Add internet permission
+        run: sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/>\n    <application|' android/app/src/main/AndroidManifest.xml
+
       - run: flutter build apk --release
 
       - uses: actions/upload-artifact@v4
