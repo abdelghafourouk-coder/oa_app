@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 
 const String geminiApiKey = String.fromEnvironment('GEMINI_API_KEY');
+const String geminiModel = 'gemini-3.8-flash';
 const String aiName = 'O-A AI';
 
 const String aiInstructions =
@@ -168,7 +169,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     String answer;
     try {
       final model =
-          GenerativeModel(model: 'gemini-2.5-flash', apiKey: geminiApiKey);
+          GenerativeModel(model: geminiModel, apiKey: geminiApiKey);
       final bytes = await File(path).readAsBytes();
       final List<Part> parts = [
         TextPart(aiInstructions),
