@@ -1,12 +1,13 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 
-const String geminiApiKey = "YOUR_GEMINI_API_KEY_HERE";
+const String geminiApiKey = String.fromEnvironment('GEMINI_API_KEY');
 const String aiName = 'O-A AI';
 
 const String aiInstructions =
@@ -51,23 +52,36 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   String? userId;
   List<String> rooms = ['General Study', 'Mathematics', 'Physics', 'Programming'];
   String selectedRoom = 'General Study';
   List<Map<String, String>> messages = [];
   bool aiLoading = false;
+  bool _busy = false;
   final TextEditingController _msgController = TextEditingController();
   final ScrollController _scroll = ScrollController();
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initUser();
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // يُغلق التطبيق تماماً عند ذهابه للخلفية أو قفل الشاشة
+    // (لا يُغلق أثناء فتح الكاميرا أو المعرض أو انتظار رد الذكاء الاصطناعي)
+    if (state == AppLifecycleState.paused && !_busy && !aiLoading) {
+      SystemNavigator.pop();
+      exit(0);
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _msgController.dispose();
     _scroll.dispose();
     super.dispose();
@@ -131,8 +145,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _pickAndSend(ImageSource source) async {
+    _busy = true;
     final picked = await ImagePicker()
         .pickImage(source: source, imageQuality: 70, maxWidth: 1280);
+    _busy = false;
     if (picked == null) return;
     final caption = _msgController.text.trim();
     _msgController.clear();
