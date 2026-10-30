@@ -166,7 +166,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     setState(() {
       aiLoading = true;
     });
-    String answer;
+    String answer = '';
     try {
       final model =
           GenerativeModel(model: geminiModel, apiKey: geminiApiKey);
@@ -176,8 +176,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         if (caption.isNotEmpty) TextPart('User caption: $caption'),
         DataPart('image/jpeg', bytes),
       ];
-      final response = await model.generateContent([Content.multi(parts)]);
-      answer = response.text ?? 'No response generated.';
+      const int maxAttempts = 10;
+      for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          final response =
+              await model.generateContent([Content.multi(parts)]);
+          answer = response.text ?? 'No response generated.';
+          break;
+        } catch (e) {
+          final msg = e.toString();
+          final busy = msg.contains('high demand') ||
+              msg.contains('overloaded') ||
+              msg.contains('503');
+          if (busy && attempt < maxAttempts) {
+            await Future.delayed(const Duration(seconds: 5));
+            continue;
+          }
+          answer = busy
+              ? 'الخادم مزدحم الآن، أعد إرسال الصورة بعد قليل.'
+              : 'Error: $e';
+          break;
+        }
+      }
     } catch (e) {
       answer = 'Error: $e';
     }
