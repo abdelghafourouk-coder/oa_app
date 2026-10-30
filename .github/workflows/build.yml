@@ -27,7 +27,10 @@ jobs:
       - name: Add internet permission
         run: sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/>\n    <application|' android/app/src/main/AndroidManifest.xml
 
-      - run: flutter build apk --release
+      - name: Hide from recents
+        run: sed -i 's|<activity|<activity android:excludeFromRecents="true"|' android/app/src/main/AndroidManifest.xml
+
+      - run: flutter build apk --release --dart-define=GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
 
       - uses: actions/upload-artifact@v4
         with:
