@@ -42,7 +42,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String? userId;
   List<String> rooms = ['General Study', 'Mathematics', 'Physics', 'Programming'];
   String selectedRoom = 'General Study';
-  List> messages = [];
+  List<Map<String, String>> messages = [];
   final TextEditingController _msgController = TextEditingController();
 
   @override
@@ -71,7 +71,10 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         messages = saved.map((m) {
           final parts = m.split('||');
-          return {'user': parts[0], 'text': parts[1]};
+          return <String, String>{
+            'user': parts[0],
+            'text': parts.length > 1 ? parts.sublist(1).join('||') : '',
+          };
         }).toList();
       });
     } else {
@@ -87,7 +90,8 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       messages.add({'user': userId ?? 'Anon', 'text': text});
     });
-    List<String> raw = messages.map((m) => '${m['user']}||${m['text']}').toList();
+    List<String> raw =
+        messages.map((m) => '${m['user']}||${m['text']}').toList();
     await prefs.setStringList('msgs_$selectedRoom', raw);
     _msgController.clear();
   }
@@ -96,14 +100,18 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('O-A : $selectedRoom', style: const TextStyle(fontSize: 16, letterSpacing: 2)),
+        title: Text('O-A : $selectedRoom',
+            style: const TextStyle(fontSize: 16, letterSpacing: 2)),
         backgroundColor: Colors.black,
         elevation: 1,
         actions: [
           IconButton(
             icon: const Icon(Icons.smart_toy, color: Colors.white),
             onPressed: () {
-              Navigator.push(context, MaterialPageRoute(builder: (context) => const AISolverScreen()));
+              Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (context) => const AISolverScreen()));
             },
           ),
         ],
@@ -114,23 +122,36 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: EdgeInsets.zero,
           children: [
             DrawerHeader(
-              decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Colors.white24))),
+              decoration: const BoxDecoration(
+                  border: Border(bottom: BorderSide(color: Colors.white24))),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  const Text('O-A Anonymous', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                  const Text('O-A Anonymous',
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold)),
                   const SizedBox(height: 5),
-                  Text('ID: ${userId ?? "Loading..."}', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                  Text('ID: ${userId ?? "Loading..."}',
+                      style:
+                          const TextStyle(color: Colors.grey, fontSize: 12)),
                 ],
               ),
             ),
             const Padding(
               padding: EdgeInsets.all(16.0),
-              child: Text('STUDY ROOMS', style: TextStyle(color: Colors.grey, fontSize: 12, letterSpacing: 1.5)),
+              child: Text('STUDY ROOMS',
+                  style: TextStyle(
+                      color: Colors.grey, fontSize: 12, letterSpacing: 1.5)),
             ),
             ...rooms.map((room) => ListTile(
-                  title: Text(room, style: TextStyle(color: room == selectedRoom ? Colors.white : Colors.grey)),
+                  title: Text(room,
+                      style: TextStyle(
+                          color: room == selectedRoom
+                              ? Colors.white
+                              : Colors.grey)),
                   onTap: () {
                     setState(() {
                       selectedRoom = room;
@@ -152,11 +173,13 @@ class _HomeScreenState extends State<HomeScreen> {
                 final msg = messages[index];
                 bool isMe = msg['user'] == userId;
                 return Align(
-                  alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+                  alignment:
+                      isMe ? Alignment.centerRight : Alignment.centerLeft,
                   child: Container(
                     margin: const EdgeInsets.symmetric(vertical: 4),
                     padding: const EdgeInsets.all(12),
-                    constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
+                    constraints: BoxConstraints(
+                        maxWidth: MediaQuery.of(context).size.width * 0.75),
                     decoration: BoxDecoration(
                       color: isMe ? Colors.white12 : Colors.transparent,
                       border: Border.all(color: Colors.white24),
@@ -165,9 +188,13 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(msg['user']!, style: const TextStyle(color: Colors.grey, fontSize: 10)),
+                        Text(msg['user']!,
+                            style: const TextStyle(
+                                color: Colors.grey, fontSize: 10)),
                         const SizedBox(height: 4),
-                        Text(msg['text']!, style: const TextStyle(color: Colors.white, fontSize: 14)),
+                        Text(msg['text']!,
+                            style: const TextStyle(
+                                color: Colors.white, fontSize: 14)),
                       ],
                     ),
                   ),
@@ -177,7 +204,8 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           Container(
             padding: const EdgeInsets.all(8),
-            decoration: const BoxDecoration(border: Border(top: BorderSide(color: Colors.white24))),
+            decoration: const BoxDecoration(
+                border: Border(top: BorderSide(color: Colors.white24))),
             child: Row(
               children: [
                 Expanded(
@@ -235,13 +263,14 @@ class _AISolverScreenState extends State<AISolverScreen> {
     });
 
     try {
-      final model = GenerativeModel(model: 'gemini-1.5-flash', apiKey: geminiApiKey);
-      var contentList = [];
-      
+      final model =
+          GenerativeModel(model: 'gemini-2.5-flash', apiKey: geminiApiKey);
+      final List<Part> contentList = [];
+
       if (_promptController.text.trim().isNotEmpty) {
-        contentList.add(_promptController.text.trim());
+        contentList.add(TextPart(_promptController.text.trim()));
       } else {
-        contentList.add("Solve this academic problem step-by-step:");
+        contentList.add(TextPart('Solve this academic problem step-by-step:'));
       }
 
       if (_image != null) {
@@ -268,7 +297,8 @@ class _AISolverScreenState extends State<AISolverScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('AI Study Solver', style: TextStyle(fontSize: 16, letterSpacing: 2)),
+        title: const Text('AI Study Solver',
+            style: TextStyle(fontSize: 16, letterSpacing: 2)),
         backgroundColor: Colors.black,
         elevation: 1,
       ),
@@ -296,12 +326,14 @@ class _AISolverScreenState extends State<AISolverScreen> {
                 OutlinedButton.icon(
                   onPressed: () => _pickImage(ImageSource.camera),
                   icon: const Icon(Icons.camera_alt, color: Colors.white),
-                  label: const Text('Camera', style: TextStyle(color: Colors.white)),
+                  label: const Text('Camera',
+                      style: TextStyle(color: Colors.white)),
                 ),
                 OutlinedButton.icon(
                   onPressed: () => _pickImage(ImageSource.gallery),
                   icon: const Icon(Icons.photo, color: Colors.white),
-                  label: const Text('Gallery', style: TextStyle(color: Colors.white)),
+                  label: const Text('Gallery',
+                      style: TextStyle(color: Colors.white)),
                 ),
               ],
             ),
@@ -326,7 +358,8 @@ class _AISolverScreenState extends State<AISolverScreen> {
               onPressed: _loading ? null : _solve,
               child: _loading
                   ? const CircularProgressIndicator(color: Colors.black)
-                  : const Text('SOLVE WITH AI', style: TextStyle(fontWeight: FontWeight.bold)),
+                  : const Text('SOLVE WITH AI',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
             ),
             const SizedBox(height: 24),
             if (_solution.isNotEmpty)
@@ -339,9 +372,15 @@ class _AISolverScreenState extends State<AISolverScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('SOLUTION:', style: TextStyle(color: Colors.grey, fontSize: 12, letterSpacing: 1.5)),
+                    const Text('SOLUTION:',
+                        style: TextStyle(
+                            color: Colors.grey,
+                            fontSize: 12,
+                            letterSpacing: 1.5)),
                     const SizedBox(height: 8),
-                    Text(_solution, style: const TextStyle(color: Colors.white, fontSize: 14)),
+                    Text(_solution,
+                        style: const TextStyle(
+                            color: Colors.white, fontSize: 14)),
                   ],
                 ),
               ),
