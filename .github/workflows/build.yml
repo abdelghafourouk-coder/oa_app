@@ -8,8 +8,13 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
-      
+      - name: Clone Repository
+        run: |
+          git init
+          git remote add origin https://github.com/${{ github.repository }}.git
+          git fetch origin main
+          git checkout main
+
       - name: Set up Java
         uses: actions/setup-java@v5
         with:
@@ -33,4 +38,3 @@ jobs:
         with:
           name: release-apk
           path: build/app/outputs/flutter-apk/app-release.apk
-          
