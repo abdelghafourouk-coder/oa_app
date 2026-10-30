@@ -1,11 +1,24 @@
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
-import 'dart:io';
 
 const String geminiApiKey = "YOUR_GEMINI_API_KEY_HERE";
+const String aiName = 'O-A AI';
+
+const String aiInstructions =
+    'You are O-A AI, an expert academic tutor inside a study chat app. '
+    'Read the attached image carefully, then answer accurately and step by '
+    'step: first restate what is asked in one short line, then solve it in '
+    'clearly numbered steps showing the reasoning and calculations, then '
+    'give the final answer on its own line. Double-check the result before '
+    'answering. If the user wrote a caption, treat it as part of the '
+    'question and reply in the same language as the caption; if there is no '
+    'caption, reply in Arabic. If the image is unclear, say what is unclear '
+    'instead of guessing.';
 
 void main() {
   runApp(const OAStudyApp());
@@ -43,12 +56,21 @@ class _HomeScreenState extends State<HomeScreen> {
   List<String> rooms = ['General Study', 'Mathematics', 'Physics', 'Programming'];
   String selectedRoom = 'General Study';
   List<Map<String, String>> messages = [];
+  bool aiLoading = false;
   final TextEditingController _msgController = TextEditingController();
+  final ScrollController _scroll = ScrollController();
 
   @override
   void initState() {
     super.initState();
     _initUser();
+  }
+
+  @override
+  void dispose() {
+    _msgController.dispose();
+    _scroll.dispose();
+    super.dispose();
   }
 
   Future<void> _initUser() async {
@@ -66,34 +88,131 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _loadMessages() async {
     final prefs = await SharedPreferences.getInstance();
-    List<String>? saved = prefs.getStringList('msgs_$selectedRoom');
-    if (saved != null) {
+    final saved = prefs.getStringList('chat_$selectedRoom') ?? [];
+    setState(() {
+      messages = saved
+          .map((m) => Map<String, String>.from(jsonDecode(m) as Map))
+          .toList();
+    });
+    _scrollDown();
+  }
+
+  Future<void> _append(String room, Map<String, String> msg) async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = 'chat_$room';
+    final list = prefs.getStringList(key) ?? [];
+    list.add(jsonEncode(msg));
+    await prefs.setStringList(key, list);
+    if (room == selectedRoom && mounted) {
       setState(() {
-        messages = saved.map((m) {
-          final parts = m.split('||');
-          return <String, String>{
-            'user': parts[0],
-            'text': parts.length > 1 ? parts.sublist(1).join('||') : '',
-          };
-        }).toList();
+        messages.add(msg);
       });
-    } else {
+      _scrollDown();
+    }
+  }
+
+  void _scrollDown() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scroll.hasClients) {
+        _scroll.jumpTo(_scroll.position.maxScrollExtent);
+      }
+    });
+  }
+
+  Future<void> _sendText() async {
+    final text = _msgController.text.trim();
+    if (text.isEmpty) return;
+    _msgController.clear();
+    await _append(selectedRoom, {
+      'user': userId ?? 'Anon',
+      'text': text,
+      'image': '',
+    });
+  }
+
+  Future<void> _pickAndSend(ImageSource source) async {
+    final picked = await ImagePicker()
+        .pickImage(source: source, imageQuality: 70, maxWidth: 1280);
+    if (picked == null) return;
+    final caption = _msgController.text.trim();
+    _msgController.clear();
+    final room = selectedRoom;
+    await _append(room, {
+      'user': userId ?? 'Anon',
+      'text': caption,
+      'image': picked.path,
+    });
+    await _askAI(room, picked.path, caption);
+  }
+
+  Future<void> _askAI(String room, String path, String caption) async {
+    setState(() {
+      aiLoading = true;
+    });
+    String answer;
+    try {
+      final model =
+          GenerativeModel(model: 'gemini-2.5-flash', apiKey: geminiApiKey);
+      final bytes = await File(path).readAsBytes();
+      final List<Part> parts = [
+        TextPart(aiInstructions),
+        if (caption.isNotEmpty) TextPart('User caption: $caption'),
+        DataPart('image/jpeg', bytes),
+      ];
+      final response = await model.generateContent([Content.multi(parts)]);
+      answer = response.text ?? 'No response generated.';
+    } catch (e) {
+      answer = 'Error: $e';
+    }
+    await _append(room, {'user': aiName, 'text': answer, 'image': ''});
+    if (mounted) {
       setState(() {
-        messages = [];
+        aiLoading = false;
       });
     }
   }
 
-  Future<void> _sendMessage(String text) async {
-    if (text.trim().isEmpty) return;
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      messages.add({'user': userId ?? 'Anon', 'text': text});
-    });
-    List<String> raw =
-        messages.map((m) => '${m['user']}||${m['text']}').toList();
-    await prefs.setStringList('msgs_$selectedRoom', raw);
-    _msgController.clear();
+  Widget _bubble(Map<String, String> msg) {
+    final user = msg['user'] ?? '';
+    final text = msg['text'] ?? '';
+    final image = msg['image'] ?? '';
+    final isMe = user == userId;
+    final isAI = user == aiName;
+    return Align(
+      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        padding: const EdgeInsets.all(12),
+        constraints: BoxConstraints(
+            maxWidth: MediaQuery.of(context).size.width * 0.8),
+        decoration: BoxDecoration(
+          color: isMe
+              ? Colors.white12
+              : (isAI ? Colors.white10 : Colors.transparent),
+          border: Border.all(color: isAI ? Colors.white54 : Colors.white24),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(isAI ? '🤖 $user' : user,
+                style: const TextStyle(color: Colors.grey, fontSize: 10)),
+            const SizedBox(height: 4),
+            if (image.isNotEmpty && File(image).existsSync())
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: Image.file(File(image), height: 180, fit: BoxFit.cover),
+                ),
+              ),
+            if (text.isNotEmpty)
+              SelectableText(text,
+                  style: const TextStyle(color: Colors.white, fontSize: 14)),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -104,17 +223,6 @@ class _HomeScreenState extends State<HomeScreen> {
             style: const TextStyle(fontSize: 16, letterSpacing: 2)),
         backgroundColor: Colors.black,
         elevation: 1,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.smart_toy, color: Colors.white),
-            onPressed: () {
-              Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                      builder: (context) => const AISolverScreen()));
-            },
-          ),
-        ],
       ),
       drawer: Drawer(
         backgroundColor: Colors.black,
@@ -167,47 +275,41 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           Expanded(
             child: ListView.builder(
+              controller: _scroll,
               padding: const EdgeInsets.all(16),
               itemCount: messages.length,
-              itemBuilder: (context, index) {
-                final msg = messages[index];
-                bool isMe = msg['user'] == userId;
-                return Align(
-                  alignment:
-                      isMe ? Alignment.centerRight : Alignment.centerLeft,
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(vertical: 4),
-                    padding: const EdgeInsets.all(12),
-                    constraints: BoxConstraints(
-                        maxWidth: MediaQuery.of(context).size.width * 0.75),
-                    decoration: BoxDecoration(
-                      color: isMe ? Colors.white12 : Colors.transparent,
-                      border: Border.all(color: Colors.white24),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(msg['user']!,
-                            style: const TextStyle(
-                                color: Colors.grey, fontSize: 10)),
-                        const SizedBox(height: 4),
-                        Text(msg['text']!,
-                            style: const TextStyle(
-                                color: Colors.white, fontSize: 14)),
-                      ],
-                    ),
-                  ),
-                );
-              },
+              itemBuilder: (context, index) => _bubble(messages[index]),
             ),
           ),
+          if (aiLoading)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              child: Row(
+                children: [
+                  SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2)),
+                  SizedBox(width: 10),
+                  Text('O-A AI is answering...',
+                      style: TextStyle(color: Colors.grey, fontSize: 12)),
+                ],
+              ),
+            ),
           Container(
             padding: const EdgeInsets.all(8),
             decoration: const BoxDecoration(
                 border: Border(top: BorderSide(color: Colors.white24))),
             child: Row(
               children: [
+                IconButton(
+                  icon: const Icon(Icons.camera_alt, color: Colors.white),
+                  onPressed: () => _pickAndSend(ImageSource.camera),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.photo, color: Colors.white),
+                  onPressed: () => _pickAndSend(ImageSource.gallery),
+                ),
                 Expanded(
                   child: TextField(
                     controller: _msgController,
@@ -216,176 +318,18 @@ class _HomeScreenState extends State<HomeScreen> {
                       hintText: 'Type a message...',
                       hintStyle: TextStyle(color: Colors.grey),
                       border: InputBorder.none,
-                      contentPadding: EdgeInsets.symmetric(horizontal: 16),
+                      contentPadding: EdgeInsets.symmetric(horizontal: 8),
                     ),
                   ),
                 ),
                 IconButton(
                   icon: const Icon(Icons.send, color: Colors.white),
-                  onPressed: () => _sendMessage(_msgController.text),
+                  onPressed: _sendText,
                 ),
               ],
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class AISolverScreen extends StatefulWidget {
-  const AISolverScreen({super.key});
-
-  @override
-  State<AISolverScreen> createState() => _AISolverScreenState();
-}
-
-class _AISolverScreenState extends State<AISolverScreen> {
-  File? _image;
-  bool _loading = false;
-  String _solution = '';
-  final TextEditingController _promptController = TextEditingController();
-
-  Future<void> _pickImage(ImageSource source) async {
-    final picked = await ImagePicker().pickImage(source: source);
-    if (picked != null) {
-      setState(() {
-        _image = File(picked.path);
-      });
-    }
-  }
-
-  Future<void> _solve() async {
-    if (_image == null && _promptController.text.trim().isEmpty) return;
-    setState(() {
-      _loading = true;
-      _solution = '';
-    });
-
-    try {
-      final model =
-          GenerativeModel(model: 'gemini-2.5-flash', apiKey: geminiApiKey);
-      final List<Part> contentList = [];
-
-      if (_promptController.text.trim().isNotEmpty) {
-        contentList.add(TextPart(_promptController.text.trim()));
-      } else {
-        contentList.add(TextPart('Solve this academic problem step-by-step:'));
-      }
-
-      if (_image != null) {
-        final imageBytes = await _image!.readAsBytes();
-        contentList.add(DataPart('image/jpeg', imageBytes));
-      }
-
-      final response = await model.generateContent([Content.multi(contentList)]);
-      setState(() {
-        _solution = response.text ?? 'No response generated.';
-      });
-    } catch (e) {
-      setState(() {
-        _solution = 'Error: $e';
-      });
-    } finally {
-      setState(() {
-        _loading = false;
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('AI Study Solver',
-            style: TextStyle(fontSize: 16, letterSpacing: 2)),
-        backgroundColor: Colors.black,
-        elevation: 1,
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (_image != null)
-              Container(
-                height: 200,
-                margin: const EdgeInsets.only(bottom: 16),
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.white24),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Image.file(_image!, fit: BoxFit.cover),
-                ),
-              ),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                OutlinedButton.icon(
-                  onPressed: () => _pickImage(ImageSource.camera),
-                  icon: const Icon(Icons.camera_alt, color: Colors.white),
-                  label: const Text('Camera',
-                      style: TextStyle(color: Colors.white)),
-                ),
-                OutlinedButton.icon(
-                  onPressed: () => _pickImage(ImageSource.gallery),
-                  icon: const Icon(Icons.photo, color: Colors.white),
-                  label: const Text('Gallery',
-                      style: TextStyle(color: Colors.white)),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _promptController,
-              style: const TextStyle(color: Colors.white),
-              maxLines: 3,
-              decoration: InputDecoration(
-                hintText: 'Ask or describe the problem...',
-                hintStyle: const TextStyle(color: Colors.grey),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-              ),
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white,
-                foregroundColor: Colors.black,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-              ),
-              onPressed: _loading ? null : _solve,
-              child: _loading
-                  ? const CircularProgressIndicator(color: Colors.black)
-                  : const Text('SOLVE WITH AI',
-                      style: TextStyle(fontWeight: FontWeight.bold)),
-            ),
-            const SizedBox(height: 24),
-            if (_solution.isNotEmpty)
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.white24),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('SOLUTION:',
-                        style: TextStyle(
-                            color: Colors.grey,
-                            fontSize: 12,
-                            letterSpacing: 1.5)),
-                    const SizedBox(height: 8),
-                    Text(_solution,
-                        style: const TextStyle(
-                            color: Colors.white, fontSize: 14)),
-                  ],
-                ),
-              ),
-          ],
-        ),
       ),
     );
   }
