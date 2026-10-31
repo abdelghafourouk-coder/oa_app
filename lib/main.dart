@@ -6,6 +6,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:flutter_math_fork/flutter_math.dart';
 
 const String geminiApiKey = String.fromEnvironment('GEMINI_API_KEY');
 const String geminiModel = 'gemini-3.1-flash-lite';
@@ -21,7 +23,10 @@ const String aiInstructions =
     'answering. If the user wrote a caption, treat it as part of the '
     'question and reply in the same language as the caption; if there is no '
     'caption, reply in Arabic. If the image is unclear, say what is unclear '
-    'instead of guessing.';
+    'instead of guessing. '
+    'Write every formula in LaTeX: use single dollar signs for inline math '
+    'and double dollar signs on their own line for main equations. '
+    'Use Markdown bold for headings and short numbered steps.';
 
 void main() {
   runApp(const OAStudyApp());
@@ -249,6 +254,52 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  // يعرض نص Markdown مع رسم المعادلات (LaTeX) بين $ ... $ أو $$ ... $$
+  Widget _richAnswer(String text) {
+    final List<Widget> out = [];
+    final reg = RegExp(r'\$\$(.+?)\$\$|\$(.+?)\$', dotAll: true);
+    int last = 0;
+
+    void addMd(String s) {
+      if (s.trim().isEmpty) return;
+      out.add(MarkdownBody(
+        data: s,
+        selectable: true,
+        styleSheet: MarkdownStyleSheet(
+          p: const TextStyle(color: Colors.white, fontSize: 14, height: 1.5),
+          strong: const TextStyle(
+              color: Colors.white, fontWeight: FontWeight.bold),
+          listBullet: const TextStyle(color: Colors.white, fontSize: 14),
+        ),
+      ));
+    }
+
+    for (final m in reg.allMatches(text)) {
+      addMd(text.substring(last, m.start));
+      final isBlock = m.group(1) != null;
+      final tex = (m.group(1) ?? m.group(2) ?? '').trim();
+      out.add(Padding(
+        padding: EdgeInsets.symmetric(vertical: isBlock ? 8 : 3),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Math.tex(
+            tex,
+            textStyle: const TextStyle(color: Colors.white, fontSize: 15),
+            onErrorFallback: (err) => Text(tex,
+                style: const TextStyle(color: Colors.white70)),
+          ),
+        ),
+      ));
+      last = m.end;
+    }
+    addMd(text.substring(last));
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: out,
+    );
+  }
+
   Widget _bubble(Map<String, String> msg) {
     final user = msg['user'] ?? '';
     final text = msg['text'] ?? '';
@@ -261,7 +312,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         margin: const EdgeInsets.symmetric(vertical: 4),
         padding: const EdgeInsets.all(12),
         constraints: BoxConstraints(
-            maxWidth: MediaQuery.of(context).size.width * 0.8),
+            maxWidth: MediaQuery.of(context).size.width * 0.9),
         decoration: BoxDecoration(
           color: isMe
               ? Colors.white12
@@ -284,8 +335,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
               ),
             if (text.isNotEmpty)
-              SelectableText(text,
-                  style: const TextStyle(color: Colors.white, fontSize: 14)),
+              isAI
+                  ? _richAnswer(text)
+                  : SelectableText(text,
+                      style: const TextStyle(
+                          color: Colors.white, fontSize: 14)),
           ],
         ),
       ),
