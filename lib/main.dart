@@ -8,7 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 
 const String geminiApiKey = String.fromEnvironment('GEMINI_API_KEY');
-const String geminiModel = 'gemini-3.8-flash';
+const String geminiModel = 'gemini-3.1-flash-lite';
 const String aiName = 'O-A AI';
 const int maxAttempts = 6;
 
