@@ -1,5 +1,5 @@
 name: oa_app
-description: "O-A Anonymous Secret Study App"
+description: O-A Study App
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -9,17 +9,14 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  google_generative_ai: ^0.2.2
-  camera: ^0.10.5+9
-  image_picker: ^1.0.7
   shared_preferences: ^2.2.2
   uuid: ^4.3.3
+  image_picker: ^1.0.7
+  google_generative_ai: ^0.4.7
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^3.0.0
 
 flutter:
   uses-material-design: true
-  
