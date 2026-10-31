@@ -8,8 +8,9 @@ import 'package:image_picker/image_picker.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 
 const String geminiApiKey = String.fromEnvironment('GEMINI_API_KEY');
-const String geminiModel = 'gemini-1.5-flash-8b';
+const String geminiModel = 'gemini-3.8-flash';
 const String aiName = 'O-A AI';
+const int maxAttempts = 6;
 
 const String aiInstructions =
     'You are O-A AI, an expert academic tutor inside a study chat app. '
@@ -112,12 +113,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _scrollDown();
   }
 
-  Future<void> _append(String room, Map<String, String> msg) async {
+  Future<void> _persist(String room, Map<String, String> msg) async {
     final prefs = await SharedPreferences.getInstance();
     final key = 'chat_$room';
     final list = prefs.getStringList(key) ?? [];
     list.add(jsonEncode(msg));
     await prefs.setStringList(key, list);
+  }
+
+  Future<void> _append(String room, Map<String, String> msg) async {
+    await _persist(room, msg);
     if (room == selectedRoom && mounted) {
       setState(() {
         messages.add(msg);
@@ -162,11 +167,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     await _askAI(room, picked.path, caption);
   }
 
+  bool _isBusyError(String msg) {
+    return msg.contains('high demand') ||
+        msg.contains('overloaded') ||
+        msg.contains('503') ||
+        msg.contains('UNAVAILABLE');
+  }
+
   Future<void> _askAI(String room, String path, String caption) async {
     setState(() {
       aiLoading = true;
     });
-    String answer = '';
+
+    // رسالة حية تُملأ تدريجياً أثناء البث
+    final Map<String, String> live = {'user': aiName, 'text': '', 'image': ''};
+    bool shown = false;
+    String buffer = '';
+    String finalText = '';
+
     try {
       final model =
           GenerativeModel(model: geminiModel, apiKey: geminiApiKey);
@@ -176,36 +194,58 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         if (caption.isNotEmpty) TextPart('User caption: $caption'),
         DataPart('image/jpeg', bytes),
       ];
-      const int maxAttempts = 10;
+
       for (int attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
-          final response =
-              await model.generateContent([Content.multi(parts)]);
-          answer = response.text ?? 'No response generated.';
+          final stream = model.generateContentStream([Content.multi(parts)]);
+          await for (final chunk in stream) {
+            final t = chunk.text;
+            if (t == null || t.isEmpty) continue;
+            buffer += t;
+            live['text'] = buffer;
+            if (!shown && room == selectedRoom && mounted) {
+              shown = true;
+              setState(() {
+                messages.add(live);
+              });
+            } else if (mounted) {
+              setState(() {});
+            }
+            _scrollDown();
+          }
+          finalText = buffer.isEmpty ? 'No response generated.' : buffer;
           break;
         } catch (e) {
           final msg = e.toString();
-          final busy = msg.contains('high demand') ||
-              msg.contains('overloaded') ||
-              msg.contains('503');
-          if (busy && attempt < maxAttempts) {
-            await Future.delayed(const Duration(seconds: 5));
+          if (buffer.isNotEmpty) {
+            // انقطع البث في المنتصف: نحتفظ بما وصل
+            finalText = '$buffer\n\n[انقطع الرد، أعد إرسال الصورة]';
+            break;
+          }
+          if (_isBusyError(msg) && attempt < maxAttempts) {
+            await Future.delayed(const Duration(seconds: 2));
             continue;
           }
-          answer = busy
+          finalText = _isBusyError(msg)
               ? 'الخادم مزدحم الآن، أعد إرسال الصورة بعد قليل.'
               : 'Error: $e';
           break;
         }
       }
     } catch (e) {
-      answer = 'Error: $e';
+      finalText = 'Error: $e';
     }
-    await _append(room, {'user': aiName, 'text': answer, 'image': ''});
+
+    live['text'] = finalText;
+    await _persist(room, live);
     if (mounted) {
       setState(() {
+        if (!shown && room == selectedRoom) {
+          messages.add(live);
+        }
         aiLoading = false;
       });
+      _scrollDown();
     }
   }
 
